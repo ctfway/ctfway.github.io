@@ -1,6 +1,6 @@
 ---
 layout:     post
-title:      "[SWPUCTF 2021 新生赛]traditional writeup Blog"
+title:      "ctfway ctf之路"
 subtitle:   " [SWPUCTF 2021 新生赛]traditional writeup Blog"
 date:       2025-05-27 16:00:00
 author:     "CTF之路"
