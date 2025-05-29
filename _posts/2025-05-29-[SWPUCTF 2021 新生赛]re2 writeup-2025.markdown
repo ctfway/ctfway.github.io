@@ -1,0 +1,238 @@
+---
+layout:     post
+title:      "CTFway-CTF之路-[SWPUCTF 2021 新生赛]re2 writeup Blog"
+subtitle:   " 一道简单的逆向题从F5到Flag的多解探秘 writeup Blog"
+date:       2025-05-29 10:00:00
+author:     "CTF之路"
+header-img: "img/post-bg-2015.jpg"
+catalog: true
+tags:
+    - Meta
+---
+
+# 【CTF新手村教程】[SWPUCTF 2021 新生赛]re2 一道简单的逆向题从F5到Flag的多解探秘
+
+哈喽，各位CTF萌新小伙伴们，今天老菜（没错，就是我这个菜鸟博主啦）要带大家一起复盘一道非常适合入门的逆向（Reverse）题目。通过这道题，我们不仅能熟悉IDA的基本操作，还能体验到解题过程中“山重水复疑无路，柳暗花明又一村”的快感，甚至还会发现，原来Flag不止一个哦！
+
+## 题目  查看附件 查壳 开干 没啥东西
+
+## 初见端倪：IDA F5大法好
+
+老规矩，拿到题目先拖进我们的神器IDA Pro。稍微等待分析完成，直接对着`main`函数按下键盘上的**F5**，让伪代码“现出原形”！
+
+```c
+int __cdecl main(int argc, const char **argv, const char **envp)
+{
+  char Str2[64]; // [rsp+20h] [rbp-90h] BYREF
+  char Str[68]; // [rsp+60h] [rbp-50h] BYREF
+  int v7; // [rsp+A8h] [rbp-8h]
+  int i; // [rsp+ACh] [rbp-4h]
+
+  _main(); // 程序初始化，先不管它
+  strcpy(Str2, "ylqq]aycqyp{"); // 目标字符串，记下来！
+  printf(&Format); // 应该是提示输入
+  gets(Str);       // 获取我们的输入，存在Str里
+  v7 = strlen(Str); // 计算输入长度
+
+  // 核心加密（或者叫转换）逻辑
+  for ( i = 0; i < v7; ++i )
+  {
+    // 这个if条件有点绕，我们后面分析
+    if ( (Str[i] <= 96 || Str[i] > 98) && (Str[i] <= 64 || Str[i] > 66) )
+      Str[i] -= 2; // ASCII码减2
+    else
+      Str[i] += 24; // ASCII码加24
+  }
+
+  // 比较转换后的Str和固定的Str2
+  if ( strcmp(Str, Str2) ) // strcmp相等返回0，所以这里是非0，即不相等
+    printf(&byte_404024); // "再找找看吧！" 之类的
+  else
+    printf(aBingo);       // "bingo," 之类的，我们的目标！
+  system("pause");
+  return 0;
+}
+
+
+代码逻辑很清晰：
+
+Str2 是一个固定的字符串 "ylqq]aycqyp{"。
+
+程序获取我们的输入 Str。
+
+对 Str 的每个字符进行一个条件转换。
+
+比较转换后的 Str 和 Str2。
+
+如果相等，就打印成功信息（我们假设是aBingo指向的内容）。
+
+庖丁解牛：分析核心转换逻辑
+
+关键就在那个 for 循环和 if 判断里。我们把它“翻译”成人话：
+
+对于你输入的 Str 中的每一个字符 C：
+  条件A：(C <= '`' (96) 或者 C > 'b' (98))  => C 不是 'a' 也不是 'b'
+  条件B：(C <= '@' (64) 或者 C > 'B' (66))  => C 不是 'A' 也不是 'B'
+
+  如果 (条件A 成立 并且 条件B 成立):
+    也就是说，如果 C 既不是 'a'/'b'，也不是 'A'/'B'
+    那么 C 的 ASCII 码减 2 (C = C - 2)
+  否则 (也就是说，C 是 'a', 'b', 'A', 'B' 中的一个):
+    那么 C 的 ASCII 码加 24 (C = C + 24)
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+IGNORE_WHEN_COPYING_END
+
+好家伙，原来是针对 'a', 'b', 'A', 'B' 这四个“特殊字符”和其他“普通字符”做了不同的处理。
+
+逆流而上：如何得到正确的输入？
+
+我们的目标是让我们输入的 Str 经过转换后，等于 "ylqq]aycqyp{"。这不就是经典的逆向思维嘛！我们要对目标字符串的每个字符执行反向操作。
+
+对于目标字符串 Str2 中的每一个字符 Target_C，我们要找到它对应的原始输入字符 Original_C：
+
+假设 Original_C 是个特殊字符 ('a', 'b', 'A', 'B')：
+那么它经过转换是 Original_C + 24 = Target_C。
+所以，我们可以计算 Candidate1 = Target_C - 24。然后检查 Candidate1 是不是那四个特殊字符之一。如果是，那它就是 Original_C。
+
+如果上面假设不成立，那 Original_C 肯定是个普通字符：
+那么它经过转换是 Original_C - 2 = Target_C。
+所以，我们可以计算 Candidate2 = Target_C + 2。然后检查 Candidate2 是不是普通字符（即不是那四个特殊字符）。如果是，那它就是 Original_C。
+
+用这个思路，我们可以写个小脚本（Python大法好！）来帮我们计算：
+
+# 目标字符串
+str2 = "ylqq]aycqyp{"
+original_input_chars = []
+
+# 特殊字符的ASCII码集合，方便判断
+special_chars_ascii = {ord('a'), ord('b'), ord('A'), ord('B')}
+
+for target_char_val in str2:
+    target_char_ascii = ord(target_char_val)
+    found = False
+
+    # 尝试逆向 +24 操作 (原始字符是特殊字符)
+    candidate1_ascii = target_char_ascii - 24
+    if candidate1_ascii in special_chars_ascii:
+        original_input_chars.append(chr(candidate1_ascii))
+        found = True
+    
+    if found:
+        continue
+
+    # 尝试逆向 -2 操作 (原始字符是普通字符)
+    candidate2_ascii = target_char_ascii + 2
+    if candidate2_ascii not in special_chars_ascii: # 确保它不是特殊字符
+        original_input_chars.append(chr(candidate2_ascii))
+        found = True
+    
+    if not found:
+        print(f"Oops, 没找到逆向字符 for '{target_char_val}'") # 理论上不该发生
+
+result_input = "".join(original_input_chars)
+print(f"算出来的输入应该是: {result_input}")
+
+# (可选) 再用程序的逻辑验证一遍我们的输入
+# 验证代码：
+# transformed_test = []
+# for char_in_result in result_input:
+#    char_ascii = ord(char_in_result)
+#    if char_ascii not in special_chars_ascii:
+#        transformed_test.append(chr(char_ascii - 2))
+#    else:
+#        transformed_test.append(chr(char_ascii + 24))
+# print(f"验证转换结果: {''.join(transformed_test)}")
+# print(f"目标结果: {str2}")
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Python
+IGNORE_WHEN_COPYING_END
+
+运行一下脚本，我们会得到一个候选输入：anss_caesar}。
+
+把 anss_caesar} 输入程序，果然，屏幕上出现了 "bingo,"（或者类似的成功提示）！
+
+峰回路转：Flag到底是什么？
+
+高兴地把 anss_caesar} 往平台上一提交……咦？不对？"再找找看吧！"
+
+这时候，萌新们（包括我）可能就有点懵了。程序都说对了，怎么flag还不认账？
+
+别急，我们回头看看汇编。在 printf(aBingo) 附近，IDA通常会给出注释：
+
+.text:0000000000401621 48 8D 0D E9 29 00 00          lea     rcx, aBingo                     ; "bingo,"
+.text:0000000000401628 E8 CB 15 00 00                call    printf
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Assembly
+IGNORE_WHEN_COPYING_END
+
+啊哈！aBingo 指向的字符串原来就是 "bingo,"，后面还带个逗号。看来，anss_caesar} 只是让程序校验通过的“钥匙”，并不是flag本身。
+
+（此处省略了和AI小伙伴的一系列讨论，比如检查_main函数，尝试各种flag格式等。新手题嘛，通常不会藏得太深。）
+
+意外之喜：多解的奥秘
+
+就在我们抓耳挠腮的时候，有经验的学长/论坛大佬给出了提示：这题可能是多解的，试试输入 {nss_caesar} 看看？
+
+抱着试一试的心态，我们把 {nss_caesar} 输入程序。
+奇迹发生了！屏幕上依然是 "bingo,"！
+再把 {nss_caesar} 提交到平台，Duang！正确！
+
+这是为什么呢？我们来手动验证一下输入 {nss_caesar} 的转换过程：
+
+输入字符	ASCII	是否特殊？	转换规则	转换后ASCII	转换后字符	目标 Str2 对应字符
+{	123	否	-2	121	y	y
+n	110	否	-2	108	l	l
+s	115	否	-2	113	q	q
+s	115	否	-2	113	q	q
+_	95	否	-2	93	]	]
+c	99	否	-2	97	a	a
+a	97	是	+24	121	y	y
+e	101	否	-2	99	c	c
+s	115	否	-2	113	q	q
+a	97	是	+24	121	y	y
+r	114	否	-2	112	p	p
+}	125	否	-2	123	{	{
+
+完美匹配！
+
+再看看我们之前得到的 anss_caesar} 的第一个字符 a：
+a (ASCII 97, 特殊字符) -> 97 + 24 = 121 (即 y)
+
+发现了没？
+
+输入 a (特殊) 经过 +24 得到 y。
+
+输入 { (普通) 经过 -2 也得到 y。
+
+因为程序只对少数几个字符做了特殊处理，其他字符都是统一 -2，这就导致了不同的输入可以通过不同的路径（一个 +24，一个 -2）得到相同的转换后字符，从而产生多解！
+
+而大佬给的另一个提示，说 "把 {nss_c{es{r} 里面的 { 换成 a 就得到 anss_caesar}"，这个更像是解释了这两个解之间的关系，或者说，flag的“原始形态”可能是包含 { 的，而 anss_caesar} 是它的一种“解码”或“变体”。不过对于这道题，直接输入 {nss_caesar} 就能提交，说明平台接受这种形式。
+
+总结与思考
+
+这道新手逆向题带给我们几点启发：
+
+F5是好朋友：快速理解程序逻辑。
+
+核心算法要看懂：弄清楚字符是怎么转换的。
+
+逆向思维是关键：从结果倒推输入。
+
+脚本小子欢乐多：重复计算交给程序。
+
+成功提示不一定是Flag：要仔细看它到底打印了啥。
+
+多解并非不可能：一个转换算法可能存在不同的输入产生相同输出的情况。
+
+交流使人进步：卡住的时候看看别人的思路，或者和大佬聊聊，往往能打开新世界的大门。
+
+好啦，今天的CTF新手村教程就到这里。希望大家能有所收获，继续在CTF的道路上愉快地打怪升级！下次再见！
